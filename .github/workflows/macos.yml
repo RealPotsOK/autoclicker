@@ -1,0 +1,31 @@
+name: macOS checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Show Swift version
+        run: swift --version
+      - name: Test click state machine
+        run: ./scripts/test.sh
+      - name: Build app
+        run: ./scripts/build.sh
+      - name: Check native mouse and shortcut handling
+        run: '"build/Auto Clicker.app/Contents/MacOS/AutoClicker" --self-test'
