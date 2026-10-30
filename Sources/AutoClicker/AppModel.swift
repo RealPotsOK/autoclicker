@@ -36,8 +36,9 @@ final class AppModel: ObservableObject {
         engine.onChange = { [weak self] in self?.publishState() }
         engine.onFailure = { [weak self] message in self?.message = message }
         engine.canClickAtPointer = { [weak self] in !(self?.pointerIsOverControls?() ?? false) }
-        mouse.onPhysicalChange = { [weak self] held, clickCount in
-            self?.engine.update(mouseHeld: held, physicalClickCount: clickCount)
+        mouse.onPhysicalChange = { [weak self] held, clickCount, modifiers in
+            self?.engine.update(mouseHeld: held, physicalClickCount: clickCount,
+                                physicalModifiers: modifiers)
         }
         mouse.shouldCapture = { [weak self] _ in
             guard let self else { return false }

@@ -11,6 +11,7 @@ A native menu bar auto clicker with hold-to-click and continuous modes, global k
 - **Hold to click:** press M1 for one immediate click, then keep holding to repeat after your chosen start delay.
 - **Continuous clicking:** repeat without holding the mouse button.
 - **Normal double-clicks and triple-clicks** while hold mode is armed.
+- **Modifier clicks:** hold Shift, Control, Option, Command, or Fn for modified single clicks and automatic repeats.
 - **Custom timing:** click delay, clicks per burst, pause between bursts, and start delay.
 - **Global start and stop shortcuts**, plus quick controls in the menu bar.
 - **Launch at login** and automatically saved settings. Clicking starts off each time the app opens.
@@ -73,6 +74,8 @@ In **hold mode**, pressing M1 clicks once immediately. A quick tap produces just
 
 Manual double-clicks and triple-clicks preserve the click counts supplied by macOS. Automatic repeats are single clicks.
 
+Held keyboard modifiers apply to both the immediate manual click and automatic repeats. For example, hold **Shift + M1** for Shift-clicks, or hold **Command + Shift** for that combination. Automatic clicks read the current keys each time, so pressing or releasing a modifier while clicking changes subsequent clicks. Caps Lock and Fn state are preserved too. Each generated mouse-down and mouse-up pair keeps the same modifiers.
+
 In **continuous mode**, the start delay comes before the first click. The start delay also applies when switching modes, changing timing, or resuming after closing the controls.
 
 A **100 ms** click delay, **3 clicks per burst**, and **500 ms** burst pause produces automatic clicks at:
@@ -107,7 +110,7 @@ Quit any running copy before testing the native adapters, so all four global sho
 "build/Auto Clicker.app/Contents/MacOS/AutoClicker" --self-test
 ```
 
-The native checks cover timer cancellation, physical versus generated mouse events, single/double/triple-click counts, mouse-button release, permission loss, and shortcut handling. They capture mouse events in memory and never click other apps.
+The native checks cover timer cancellation, physical versus generated mouse events, single/double/triple-click counts, held modifier keys and combinations, mouse-button release, permission loss, and shortcut handling. They capture mouse events in memory and never click other apps.
 
 Other development commands:
 

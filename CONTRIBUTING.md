@@ -23,7 +23,7 @@ Use macOS and a Swift 6 or later toolchain. There are no third-party package dep
 4. Quit the installed copy and run `"build/Auto Clicker.app/Contents/MacOS/AutoClicker" --self-test` when changing native event handling. The checks use an in-memory event sink; they never send global mouse clicks.
 5. Open a pull request describing the resulting behavior and relevant validation.
 
-Add regression coverage for changes to click counts, hold detection, timers, bursts, or release cleanup. Keep generated events distinguishable from physical presses, pair each mouse-down with mouse-up, and preserve manual double-click/triple-click counts while keeping automatic repeats as single clicks.
+Add regression coverage for changes to click counts, modifier keys, hold detection, timers, bursts, or release cleanup. Keep generated events distinguishable from physical presses, pair each mouse-down with mouse-up, and preserve manual double-click/triple-click counts while keeping automatic repeats as single clicks. Preserve held modifiers on immediate clicks, refresh hardware modifier state for each repeat, and keep the same modifier flags on each generated down/up pair.
 
 Use `./scripts/install.sh` to try a change locally. It installs to `~/Applications/Auto Clicker.app`; clicking is off when the updated app launches.
 

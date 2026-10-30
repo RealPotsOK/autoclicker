@@ -1,7 +1,7 @@
 import AppKit
 
 final class MouseMonitor {
-    var onPhysicalChange: ((Bool, Int64) -> Void)?
+    var onPhysicalChange: ((Bool, Int64, CGEventFlags?) -> Void)?
     var shouldCapture: ((CGPoint) -> Bool)?
     var onInterruption: (() -> Void)?
     private(set) var physicalMouseDown = false
@@ -32,7 +32,7 @@ final class MouseMonitor {
         physicalMouseDown = CGEventSource.buttonState(.hidSystemState, button: .left)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
-        onPhysicalChange?(physicalMouseDown, 1)
+        onPhysicalChange?(physicalMouseDown, 1, nil)
         return true
     }
 
@@ -50,7 +50,7 @@ final class MouseMonitor {
         if !held { capturedPress = false }
         if physicalMouseDown != held {
             physicalMouseDown = held
-            onPhysicalChange?(held, 1)
+            onPhysicalChange?(held, 1, nil)
         }
     }
 
@@ -80,13 +80,13 @@ final class MouseMonitor {
         case .leftMouseDown:
             physicalMouseDown = true
             capturedPress = shouldCapture?(event.location) ?? false
-            onPhysicalChange?(true, event.getIntegerValueField(.mouseEventClickState))
+            onPhysicalChange?(true, event.getIntegerValueField(.mouseEventClickState), event.flags)
             return capturedPress ? nil : Unmanaged.passUnretained(event)
         case .leftMouseUp:
             let captured = capturedPress
             physicalMouseDown = false
             capturedPress = false
-            onPhysicalChange?(false, event.getIntegerValueField(.mouseEventClickState))
+            onPhysicalChange?(false, event.getIntegerValueField(.mouseEventClickState), event.flags)
             return captured ? nil : Unmanaged.passUnretained(event)
         case .leftMouseDragged where capturedPress:
             // Keep pointer motion without turning the physical hold into a drag in the target app.

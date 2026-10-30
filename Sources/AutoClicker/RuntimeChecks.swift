@@ -22,7 +22,7 @@ enum RuntimeChecks {
         let engine = ClickEngine(
             configuration: .init(clickDelayMilliseconds: 30, startDelayMilliseconds: 20),
             postEvent: { if let event = $0.copy() { events.append(event) } },
-            permissionCheck: { true }
+            permissionCheck: { true }, readModifiers: { [] }
         )
         engine.update(mode: .hold, ready: true)
         drain(0.04)
@@ -41,7 +41,7 @@ enum RuntimeChecks {
               "Every injected press is released")
         check(events.allSatisfy { $0.getIntegerValueField(.eventSourceUserData) == ClickEngine.eventTag },
               "All generated events carry the synthetic event tag")
-        check(events.allSatisfy { $0.flags.isEmpty }, "Start shortcut modifiers cannot leak into generated clicks")
+        check(events.allSatisfy { $0.flags.isEmpty }, "Clicks are unmodified when no modifier keys are held")
 
         events.removeAll()
         engine.update(mouseHeld: true)
@@ -99,7 +99,7 @@ enum RuntimeChecks {
 
         let monitor = MouseMonitor()
         var physicalChanges: [Bool] = []
-        monitor.onPhysicalChange = { held, _ in physicalChanges.append(held) }
+        monitor.onPhysicalChange = { held, _, _ in physicalChanges.append(held) }
         monitor.shouldCapture = { _ in true }
         let realDown = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
                               mouseCursorPosition: .zero, mouseButton: .left)!
@@ -128,8 +128,8 @@ enum RuntimeChecks {
         )
         let gestureMonitor = MouseMonitor()
         gestureMonitor.shouldCapture = { _ in true }
-        gestureMonitor.onPhysicalChange = { held, clickCount in
-            gestureEngine.update(mouseHeld: held, physicalClickCount: clickCount)
+        gestureMonitor.onPhysicalChange = { held, clickCount, modifiers in
+            gestureEngine.update(mouseHeld: held, physicalClickCount: clickCount, physicalModifiers: modifiers)
         }
         gestureEngine.update(mode: .hold, ready: true)
 
@@ -172,6 +172,8 @@ enum RuntimeChecks {
                 }, "Each generated mouse-up keeps its own mouse-down's click count")
         gestureEngine.update(mode: .off)
 
+        checkModifierClicks(check: check, drain: drain)
+
         let shortcuts = GlobalHotKeys()
         var modes: [ClickMode] = []
         shortcuts.onMode = { modes.append($0) }
@@ -196,5 +198,115 @@ enum RuntimeChecks {
         shortcuts.unregister()
         print("\(checks - failures.count)/\(checks) native runtime checks passed. No global mouse events were posted.")
         return failures.isEmpty ? 0 : 1
+    }
+
+    private static func checkModifierClicks(check: (Bool, String) -> Void, drain: (TimeInterval) -> Void) {
+        var events: [CGEvent] = []
+        let engine = ClickEngine(
+            configuration: .init(startDelayMilliseconds: 1000),
+            postEvent: { if let event = $0.copy() { events.append(event) } },
+            permissionCheck: { true }, readModifiers: { [] }
+        )
+        let monitor = MouseMonitor()
+        monitor.shouldCapture = { _ in true }
+        monitor.onPhysicalChange = { held, count, modifiers in
+            engine.update(mouseHeld: held, physicalClickCount: count, physicalModifiers: modifiers)
+        }
+        engine.update(mode: .hold, ready: true)
+
+        func physicalClick(_ type: CGEventType, flags: CGEventFlags, count: Int64 = 1) {
+            let event = CGEvent(mouseEventSource: nil, mouseType: type,
+                                mouseCursorPosition: .zero, mouseButton: .left)!
+            event.flags = flags
+            event.setIntegerValueField(.mouseEventClickState, value: count)
+            _ = monitor.handle(type: type, event: event)
+        }
+
+        let modifiers: [(String, CGEventFlags)] = [
+            ("Shift", .maskShift), ("Control", .maskControl), ("Option", .maskAlternate),
+            ("Command", .maskCommand), ("Caps Lock", .maskAlphaShift),
+            ("Fn", .maskSecondaryFn), ("Help", .maskHelp)
+        ]
+        for (name, flag) in modifiers {
+            events.removeAll()
+            physicalClick(.leftMouseDown, flags: flag)
+            physicalClick(.leftMouseUp, flags: [])
+            check(events.count == 2 && events.allSatisfy { $0.flags == flag },
+                  "\(name)-click preserves the physical press's modifiers on mouse-down and mouse-up")
+        }
+
+        events.removeAll()
+        let combination: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand, .maskSecondaryFn]
+        physicalClick(.leftMouseDown, flags: combination, count: 2)
+        physicalClick(.leftMouseUp, flags: [], count: 2)
+        check(events.count == 2 && events.allSatisfy {
+            $0.flags == combination && $0.getIntegerValueField(.mouseEventClickState) == 2
+        }, "Modifier combinations preserve manual double-click counts")
+        let expectedAppKit: NSEvent.ModifierFlags = [.shift, .control, .option, .command, .function]
+        check(events.compactMap { NSEvent(cgEvent: $0)?.modifierFlags } == [expectedAppKit, expectedAppKit],
+              "AppKit receives all held modifiers on manual clicks")
+
+        events.removeAll()
+        physicalClick(.leftMouseDown, flags: [.maskShift, .maskNonCoalesced, .maskNumericPad])
+        physicalClick(.leftMouseUp, flags: [])
+        check(events.count == 2 && events.allSatisfy { $0.flags == .maskShift },
+              "Only keyboard modifiers are copied into generated clicks")
+        engine.update(mode: .off)
+
+        var hardwareFlags: CGEventFlags = .maskShift
+        var releaseAfterNextDown = true
+        var repeatingEvents: [CGEvent] = []
+        let repeatingEngine = ClickEngine(
+            configuration: .init(clickDelayMilliseconds: 30, startDelayMilliseconds: 0),
+            postEvent: { event in
+                if let event = event.copy() { repeatingEvents.append(event) }
+                // Simulate releasing Shift between the first down and its delayed up.
+                if event.type == .leftMouseDown && releaseAfterNextDown {
+                    hardwareFlags = []
+                    releaseAfterNextDown = false
+                }
+            }, permissionCheck: { true }, readModifiers: { hardwareFlags }
+        )
+        repeatingEngine.update(mode: .continuous, ready: true)
+        drain(0.08)
+        let downs = repeatingEvents.filter { $0.type == .leftMouseDown }
+        check(downs.count >= 2 && downs.first?.flags == .maskShift
+                && downs.dropFirst().allSatisfy { $0.flags.isEmpty },
+              "Continuous clicks stop using Shift as soon as it is released")
+        check(repeatingEvents.count >= 2 && repeatingEvents[0].flags == .maskShift
+                && repeatingEvents[1].type == .leftMouseUp && repeatingEvents[1].flags == .maskShift,
+              "Releasing a modifier during a generated click does not split its down/up pair")
+
+        let countBeforePress = repeatingEvents.count
+        hardwareFlags = combination
+        drain(0.07)
+        let clicksAfterPress = repeatingEvents.dropFirst(countBeforePress).filter { $0.type == .leftMouseDown }
+        check(!clicksAfterPress.isEmpty && clicksAfterPress.allSatisfy { $0.flags == combination },
+              "Pressing modifiers during continuous clicking applies them to the next clicks")
+
+        repeatingEngine.update(mode: .off)
+        repeatingEvents.removeAll()
+        hardwareFlags = combination
+        releaseAfterNextDown = true
+        repeatingEngine.update(mode: .hold, mouseHeld: false)
+        repeatingEngine.update(mouseHeld: true)
+        drain(0.08)
+        repeatingEngine.update(mouseHeld: false)
+        let heldDowns = repeatingEvents.filter { $0.type == .leftMouseDown }
+        check(heldDowns.count >= 2 && heldDowns.first?.flags == combination
+                && heldDowns.dropFirst().allSatisfy { $0.flags.isEmpty },
+              "Hold-mode automatic clicks refresh modifiers instead of latching the first click's keys")
+        check(repeatingEvents.count.isMultiple(of: 2)
+                && stride(from: 0, to: repeatingEvents.count - 1, by: 2).allSatisfy {
+                    repeatingEvents[$0].flags == repeatingEvents[$0 + 1].flags
+                }, "Stopping a modified click always releases it with matching modifier flags")
+
+        repeatingEvents.removeAll()
+        hardwareFlags = .maskControl
+        repeatingEngine.releaseForwardedPress()
+        check(repeatingEvents.count == 1 && repeatingEvents[0].type == .leftMouseUp
+                && repeatingEvents[0].flags == .maskControl,
+              "Balancing a physical press also respects held modifiers")
+        repeatingEngine.update(mode: .off)
     }
 }
